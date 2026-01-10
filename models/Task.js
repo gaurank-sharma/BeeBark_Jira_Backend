@@ -2,19 +2,26 @@ const mongoose = require('mongoose');
 
 const taskSchema = new mongoose.Schema({
   title: { type: String, required: true },
-  description: { type: String }, // Rich text or long text
-  status: { type: String, default: 'To Do' }, // To Do, In Progress, Done
-  priority: { type: String, enum: ['Low', 'Medium', 'High'], default: 'Medium' },
+  description: { type: String }, // Rich text
+  status: { type: String, default: 'To Do' },
+  priority: { type: String, enum: ['Low', 'Medium', 'High', 'Critical'], default: 'Medium' },
   
-  // Relationships
-  team: { type: mongoose.Schema.Types.ObjectId, ref: 'Team', required: true },
+  // Dates
+  startDate: { type: Date, default: Date.now },
+  deadline: { type: Date },
+
+  // Organization
+  pod: { type: String, required: true }, // e.g., "Development", "Design" (Stored as string or Ref)
+  isPrivate: { type: Boolean, default: false }, // Private to the assignee/reporter?
+
+  // People
   assignee: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
-  reporter: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true }, // Who created it
+  reporter: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
   
-  // Attachments
+  // Files (Cloudinary)
   attachments: [{
     url: String,
-    public_id: String,
+    name: String,
     format: String
   }],
 

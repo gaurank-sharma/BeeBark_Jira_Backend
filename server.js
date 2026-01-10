@@ -16,9 +16,10 @@ const app = express();
 app.use(cors());
 app.use(express.json());
 
+// --- DATABASE CONNECTION ---
 mongoose.connect(process.env.MONGO_URI)
   .then(() => console.log('✅ MongoDB Connected'))
-  .catch(err => console.error(err));
+  .catch(err => console.error('❌ DB Connection Error:', err));
 
 // --- MIDDLEWARE ---
 const authenticateToken = (req, res, next) => {
@@ -36,7 +37,6 @@ const authenticateToken = (req, res, next) => {
 app.post('/api/register', async (req, res) => {
   try {
     const { username, email, password } = req.body;
-    // Check if user exists (username OR email)
     const existing = await User.findOne({ $or: [{ username }, { email }] });
     if (existing) return res.status(400).json({ error: "Username or Email already exists" });
 
@@ -67,17 +67,22 @@ app.post('/api/login', async (req, res) => {
   }
 });
 
+// Get All Users (For Assignee Dropdown)
 app.get('/api/users', authenticateToken, async (req, res) => {
-    const users = await User.find({}, 'username email');
-    res.json(users);
+    try {
+        const users = await User.find({}, 'username email');
+        res.json(users);
+    } catch (err) {
+        res.status(500).json({ error: "Failed to fetch users" });
+    }
 });
 
-// --- TEAM ROUTES (Pods) ---
+// --- TEAM ROUTES (For Privacy/Access Control) ---
 app.post('/api/teams', authenticateToken, async (req, res) => {
     try {
         const { name, members, isPrivate } = req.body;
-        // Ensure creator is in members
-        const memberIds = [...new Set([...members, req.user._id])]; 
+        // Ensure creator is included in members
+        const memberIds = members ? [...new Set([...members, req.user._id])] : [req.user._id]; 
         
         const newTeam = new Team({
             name,
@@ -91,35 +96,44 @@ app.post('/api/teams', authenticateToken, async (req, res) => {
 });
 
 app.get('/api/teams', authenticateToken, async (req, res) => {
-    // Return teams where user is a member OR team is public
-    const teams = await Team.find({
-        $or: [
-            { isPrivate: false },
-            { members: req.user._id }
-        ]
-    });
-    res.json(teams);
+    try {
+        // Return teams where user is a member OR team is public
+        const teams = await Team.find({
+            $or: [
+                { isPrivate: false },
+                { members: req.user._id }
+            ]
+        });
+        res.json(teams);
+    } catch (err) { res.status(500).json({ error: "Failed to fetch teams" }); }
 });
 
 // --- TASK ROUTES ---
 
-// Create Task (With File Upload)
+// 1. CREATE TASK (With Files, Pods, Dates)
 app.post('/api/tasks', authenticateToken, upload.array('files'), async (req, res) => {
   try {
-    const { title, description, priority, teamId, assigneeId } = req.body;
+    const { 
+        title, description, priority, pod, // New fields
+        assigneeId, teamId, startDate, deadline 
+    } = req.body;
     
     // Process files from Cloudinary
     const attachments = req.files ? req.files.map(f => ({
         url: f.path,
         public_id: f.filename,
-        format: f.mimetype
+        format: f.mimetype,
+        name: f.originalname
     })) : [];
 
     const task = new Task({
         title,
         description,
         priority,
-        team: teamId,
+        pod, // Saves "Development", "Marketing", etc.
+        startDate: startDate || Date.now(),
+        deadline: deadline || null,
+        team: teamId || null, // Optional link to a Team model
         assignee: assigneeId || null,
         reporter: req.user._id,
         attachments
@@ -128,9 +142,9 @@ app.post('/api/tasks', authenticateToken, upload.array('files'), async (req, res
     await task.save();
     
     // --- EMAIL NOTIFICATION ---
-const populatedTask = await task.populate(['assignee', 'reporter']);
+    const populatedTask = await task.populate(['assignee', 'reporter']);
     
-    // 1. Notify the Assignee (if one exists)
+    // 1. Notify the Assignee
     if (populatedTask.assignee && populatedTask.assignee.email) {
         await sendEmail(
             populatedTask.assignee.email,
@@ -138,44 +152,58 @@ const populatedTask = await task.populate(['assignee', 'reporter']);
             `
               <h3>Hello ${populatedTask.assignee.username},</h3>
               <p>You have been assigned a new task in <b>BeeBark Jira</b>.</p>
-              <div style="background:#f4f4f4; padding:15px; border-radius:5px;">
+              <div style="background:#f4f4f4; padding:15px; border-radius:5px; margin: 10px 0;">
                 <p><strong>Task:</strong> ${title}</p>
+                <p><strong>Pod:</strong> ${pod}</p>
                 <p><strong>Priority:</strong> ${priority}</p>
-                <p><strong>Team:</strong> ${req.user.username} (Reporter)</p>
+                <p><strong>Deadline:</strong> ${deadline ? new Date(deadline).toDateString() : 'No Deadline'}</p>
+                <p><strong>Reporter:</strong> ${req.user.username}</p>
               </div>
-              <p>Please log in to view details.</p>
+              <p>Please log in to view details and attachments.</p>
             `
         );
     }
 
-    // 2. Confirmation to Reporter (You)
+    // 2. Confirmation to Reporter
     if (populatedTask.reporter.email) {
          await sendEmail(
             populatedTask.reporter.email,
             `Task Created: ${title}`,
-            `<p>Success! You created the task <b>${title}</b>.</p>`
+            `<p>Success! You created the task <b>${title}</b> in the <b>${pod}</b> pod.</p>`
         );
     }
 
     res.json(populatedTask);
   } catch (err) {
-    console.log(err);
+    console.error("Task Creation Error:", err);
     res.status(500).json({ error: "Failed to create task" });
   }
 });
 
-// Get Tasks (Filtered by User Privacy)
+// 2. GET TASKS (With "My Tasks" Filter)
 app.get('/api/tasks', authenticateToken, async (req, res) => {
     try {
-        // 1. Find teams the user is allowed to see
+        const { filter } = req.query; // Check for ?filter=my-tasks
+        let query = {};
+
+        // If user wants ONLY their tasks
+        if (filter === 'my-tasks') {
+            query.assignee = req.user._id;
+        }
+
+        // OPTIONAL: Add security check for Private Teams
+        // (Uncomment if you want strict privacy)
+        /*
         const allowedTeams = await Team.find({
             $or: [{ isPrivate: false }, { members: req.user._id }]
         }).select('_id');
-        
         const teamIds = allowedTeams.map(t => t._id);
+        
+        // Add to query: Task must be in allowed team OR have no team assigned
+        query.$or = [{ team: { $in: teamIds } }, { team: null }];
+        */
 
-        // 2. Find tasks belonging to those teams
-        const tasks = await Task.find({ team: { $in: teamIds } })
+        const tasks = await Task.find(query)
             .populate('assignee', 'username email')
             .populate('reporter', 'username email')
             .populate('team', 'name')
@@ -183,11 +211,12 @@ app.get('/api/tasks', authenticateToken, async (req, res) => {
 
         res.json(tasks);
     } catch (err) {
+        console.error(err);
         res.status(500).json({ error: "Fetch failed" });
     }
 });
 
-// Update Status / Drag & Drop
+// 3. UPDATE TASK STATUS (Drag & Drop)
 app.put('/api/tasks/:id', authenticateToken, async (req, res) => {
     try {
         const { status } = req.body;
@@ -204,12 +233,17 @@ app.put('/api/tasks/:id', authenticateToken, async (req, res) => {
         // --- EMAIL ON STATUS CHANGE ---
         if (oldStatus !== status) {
             const subject = `Task Updated: ${task.title}`;
-            const html = `<p>Status changed from <b>${oldStatus}</b> to <b>${status}</b>.</p>`;
+            const html = `
+                <p>Status changed from <b>${oldStatus}</b> to <b>${status}</b>.</p>
+                <p>Updated by: ${req.user.username}</p>
+            `;
             
             // Notify Assignee
-            if (task.assignee) await sendEmail(task.assignee.email, subject, html);
-            // Notify Reporter
-            if (task.reporter && task.reporter._id.toString() !== task.assignee?._id.toString()) {
+            if (task.assignee && task.assignee.email) {
+                await sendEmail(task.assignee.email, subject, html);
+            }
+            // Notify Reporter (if they are not the one updating it)
+            if (task.reporter && task.reporter.email && task.reporter._id.toString() !== req.user._id.toString()) {
                 await sendEmail(task.reporter.email, subject, html);
             }
         }
@@ -220,9 +254,18 @@ app.put('/api/tasks/:id', authenticateToken, async (req, res) => {
     }
 });
 
+// 4. DELETE TASK
+app.delete('/api/tasks/:id', authenticateToken, async (req, res) => {
+    try {
+        await Task.findByIdAndDelete(req.params.id);
+        res.json({ message: "Task deleted" });
+    } catch (err) {
+        res.status(500).json({ error: "Failed to delete task" });
+    }
+});
 
 app.get('/', (req, res) => {
-  res.send('🚀 API is running successfully');
+  res.send('🚀 BeeBark API is running with Pods & Email support!');
 });
 
 const PORT = process.env.PORT || 5000;
