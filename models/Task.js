@@ -1,19 +1,20 @@
+// models/Task.js
 const mongoose = require('mongoose');
 
 const taskSchema = new mongoose.Schema({
   title: { type: String, required: true },
-  description: { type: String }, // Rich text
+  description: { type: String }, // For rich text description
   status: { type: String, default: 'To Do' },
   priority: { type: String, enum: ['Low', 'Medium', 'High', 'Critical'], default: 'Medium' },
   
-  // Dates
+  // --- NEW FIELDS ---
+  pod: { type: String, required: true }, // e.g. "Development", "Marketing Pod"
   startDate: { type: Date, default: Date.now },
   deadline: { type: Date },
-
+  
   // Organization
-  pod: { type: String, required: true }, // e.g., "Development", "Design" (Stored as string or Ref)
-  isPrivate: { type: Boolean, default: false }, // Private to the assignee/reporter?
-
+  team: { type: mongoose.Schema.Types.ObjectId, ref: 'Team' }, // Optional: if you want to link to a private team
+  
   // People
   assignee: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
   reporter: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
@@ -21,8 +22,9 @@ const taskSchema = new mongoose.Schema({
   // Files (Cloudinary)
   attachments: [{
     url: String,
-    name: String,
-    format: String
+    public_id: String,
+    format: String,
+    name: String // To show original filename
   }],
 
   createdAt: { type: Date, default: Date.now }
