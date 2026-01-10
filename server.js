@@ -14,14 +14,18 @@ const Team = require('./models/Team');
 const { upload } = require('./utils/cloudinaryConfig');
 const sendEmail = require('./utils/sendEmail');
 
+const app = express(); 
+
+// --- 3. THEN CONFIGURE CORS ---
 app.use(cors({
-  origin: ["http://localhost:5173", "https://beebark-jira.vercel.app"], // Allow your frontend URLs
+  origin: ["http://localhost:5173", "https://beebark-jira.vercel.app"], // Add your Vercel Frontend URL here
   methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
   allowedHeaders: ["Content-Type", "Authorization"],
   credentials: true
 }));
 
-const app = express();
+// Handle Preflight requests explicitly
+app.options('*', cors());
 app.use(express.json());
 
 // --- DATABASE CONNECTION ---
