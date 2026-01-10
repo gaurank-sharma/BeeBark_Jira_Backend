@@ -118,29 +118,37 @@ app.get('/api/teams', authenticateToken, async (req, res) => {
 // Tasks
 app.post('/api/tasks', authenticateToken, upload.array('files'), async (req, res) => {
   try {
-    const { title, description, priority, pod, assigneeId, reporterId, teamId, startDate, deadline } = req.body;
+    // 1. EXTRACT taskId from body
+    const { title, description, priority, pod, assigneeId, reporterId, teamId, startDate, deadline, taskId } = req.body;
     
     const attachments = req.files ? req.files.map(f => ({
         url: f.path, public_id: f.filename, format: f.mimetype, name: f.originalname
     })) : [];
 
+    // 2. SAVE taskId (with a fallback random generator if frontend fails)
     const task = new Task({
         title, description, priority, pod, 
+        taskId: taskId || `BB-${Math.floor(1000 + Math.random() * 9000)}`, // Fallback ID
         startDate: startDate || Date.now(), deadline, 
         team: teamId || null, assignee: assigneeId || null,
         reporter: reporterId || req.user._id, 
+        status: req.body.status || 'To Do',
         attachments
     });
 
     await task.save();
     const populated = await task.populate(['assignee', 'reporter']);
     
+    // Notify Assignee
     if (populated.assignee?.email) {
         await sendEmail(populated.assignee.email, `[JIRA] Assigned: ${title}`, 
             `<h3>Task Assigned</h3><p>${populated.reporter.username} assigned <b>${title}</b> to you.</p>`);
     }
     res.json(populated);
-  } catch (err) { res.status(500).json({ error: "Task failed" }); }
+  } catch (err) { 
+    console.error(err);
+    res.status(500).json({ error: "Task creation failed" }); 
+  }
 });
 
 app.get('/api/tasks', authenticateToken, async (req, res) => {
@@ -156,7 +164,7 @@ app.put('/api/tasks/:id', authenticateToken, async (req, res) => {
         
         // Notify
         [task.assignee?.email, task.reporter?.email].filter(Boolean).forEach(email => {
-             sendEmail(email, `[JIRA] Update: ${task.title}`, `<p>Task updated.</p>`);
+             sendEmail(email, `[JIRA] Update: ${task.title}`, `<p>Task updated: <b>${task.title}</b></p>`);
         });
         
         res.json(task);
@@ -167,7 +175,6 @@ app.delete('/api/tasks/:id', authenticateToken, async (req, res) => {
     await Task.findByIdAndDelete(req.params.id);
     res.json({ message: "Deleted" });
 });
-
 app.get('/', (req, res) => res.send('🚀 BeeBark API Running'));
 
 const PORT = process.env.PORT || 5000;
