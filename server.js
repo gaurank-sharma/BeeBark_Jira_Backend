@@ -4,6 +4,7 @@ const mongoose = require('mongoose');
 const cors = require('cors');
 const jwt = require('jsonwebtoken');
 const bcrypt = require('bcryptjs');
+const cron = require('node-cron'); // Import Cron for scheduling
 
 // Import Models & Utils
 const User = require('./models/User');
@@ -32,6 +33,34 @@ const authenticateToken = (req, res, next) => {
     next();
   });
 };
+
+// --- CRON JOB: CHECK FOR OVERDUE TASKS (Runs daily at 9:00 AM) ---
+cron.schedule('0 9 * * *', async () => {
+    console.log("⏰ Running Daily Deadline Check...");
+    try {
+        const overdueTasks = await Task.find({
+            status: { $ne: 'Done' },
+            deadline: { $lt: new Date() } // Deadline is in the past
+        }).populate('assignee', 'email username').populate('reporter', 'email username');
+
+        for (const task of overdueTasks) {
+            if (task.assignee && task.assignee.email) {
+                await sendEmail(
+                    task.assignee.email,
+                    `Running Late: ${task.title}`,
+                    `
+                    <h3 style="color:#d32f2f;">⚠️ Task Overdue</h3>
+                    <p>This task was due on <b>${new Date(task.deadline).toDateString()}</b>.</p>
+                    <p style="font-size: 16px; font-weight: bold;">${task.title}</p>
+                    <p>Please update the status or contact your reporter (${task.reporter?.username}).</p>
+                    `
+                );
+            }
+        }
+    } catch (err) {
+        console.error("Cron Job Error:", err);
+    }
+});
 
 // --- AUTH ROUTES ---
 app.post('/api/register', async (req, res) => {
@@ -77,11 +106,10 @@ app.get('/api/users', authenticateToken, async (req, res) => {
     }
 });
 
-// --- TEAM ROUTES (For Privacy/Access Control) ---
+// --- TEAM ROUTES ---
 app.post('/api/teams', authenticateToken, async (req, res) => {
     try {
         const { name, members, isPrivate } = req.body;
-        // Ensure creator is included in members
         const memberIds = members ? [...new Set([...members, req.user._id])] : [req.user._id]; 
         
         const newTeam = new Team({
@@ -97,7 +125,6 @@ app.post('/api/teams', authenticateToken, async (req, res) => {
 
 app.get('/api/teams', authenticateToken, async (req, res) => {
     try {
-        // Return teams where user is a member OR team is public
         const teams = await Team.find({
             $or: [
                 { isPrivate: false },
@@ -110,12 +137,12 @@ app.get('/api/teams', authenticateToken, async (req, res) => {
 
 // --- TASK ROUTES ---
 
-// 1. CREATE TASK (With Files, Pods, Dates)
+// 1. CREATE TASK (Selectable Reporter & Files)
 app.post('/api/tasks', authenticateToken, upload.array('files'), async (req, res) => {
   try {
     const { 
-        title, description, priority, pod, // New fields
-        assigneeId, teamId, startDate, deadline 
+        title, description, priority, pod,
+        assigneeId, reporterId, teamId, startDate, deadline 
     } = req.body;
     
     // Process files from Cloudinary
@@ -130,46 +157,35 @@ app.post('/api/tasks', authenticateToken, upload.array('files'), async (req, res
         title,
         description,
         priority,
-        pod, // Saves "Development", "Marketing", etc.
+        pod, 
         startDate: startDate || Date.now(),
         deadline: deadline || null,
-        team: teamId || null, // Optional link to a Team model
+        team: teamId || null,
         assignee: assigneeId || null,
-        reporter: req.user._id,
+        // Use selected reporterId, otherwise default to logged-in user
+        reporter: reporterId || req.user._id, 
         attachments
     });
 
     await task.save();
     
-    // --- EMAIL NOTIFICATION ---
     const populatedTask = await task.populate(['assignee', 'reporter']);
     
-    // 1. Notify the Assignee
+    // EMAIL: Notify Assignee
     if (populatedTask.assignee && populatedTask.assignee.email) {
         await sendEmail(
             populatedTask.assignee.email,
-            `New Assignment: ${title}`, 
+            `[JIRA] Assigned: ${title}`, 
             `
               <h3>Hello ${populatedTask.assignee.username},</h3>
-              <p>You have been assigned a new task in <b>BeeBark Jira</b>.</p>
-              <div style="background:#f4f4f4; padding:15px; border-radius:5px; margin: 10px 0;">
+              <p><b>${populatedTask.reporter.username}</b> assigned this task to you.</p>
+              <div style="background:#f4f5f7; padding:15px; border-radius:5px; margin: 10px 0;">
                 <p><strong>Task:</strong> ${title}</p>
-                <p><strong>Pod:</strong> ${pod}</p>
                 <p><strong>Priority:</strong> ${priority}</p>
-                <p><strong>Deadline:</strong> ${deadline ? new Date(deadline).toDateString() : 'No Deadline'}</p>
-                <p><strong>Reporter:</strong> ${req.user.username}</p>
+                <p><strong>Deadline:</strong> ${deadline ? new Date(deadline).toDateString() : 'None'}</p>
               </div>
-              <p>Please log in to view details and attachments.</p>
+              <p>Please log in to view attachments.</p>
             `
-        );
-    }
-
-    // 2. Confirmation to Reporter
-    if (populatedTask.reporter.email) {
-         await sendEmail(
-            populatedTask.reporter.email,
-            `Task Created: ${title}`,
-            `<p>Success! You created the task <b>${title}</b> in the <b>${pod}</b> pod.</p>`
         );
     }
 
@@ -180,28 +196,14 @@ app.post('/api/tasks', authenticateToken, upload.array('files'), async (req, res
   }
 });
 
-// 2. GET TASKS (With "My Tasks" Filter)
+// 2. GET TASKS
 app.get('/api/tasks', authenticateToken, async (req, res) => {
     try {
-        const { filter } = req.query; // Check for ?filter=my-tasks
+        const { filter } = req.query;
         let query = {};
-
-        // If user wants ONLY their tasks
         if (filter === 'my-tasks') {
             query.assignee = req.user._id;
         }
-
-        // OPTIONAL: Add security check for Private Teams
-        // (Uncomment if you want strict privacy)
-        /*
-        const allowedTeams = await Team.find({
-            $or: [{ isPrivate: false }, { members: req.user._id }]
-        }).select('_id');
-        const teamIds = allowedTeams.map(t => t._id);
-        
-        // Add to query: Task must be in allowed team OR have no team assigned
-        query.$or = [{ team: { $in: teamIds } }, { team: null }];
-        */
 
         const tasks = await Task.find(query)
             .populate('assignee', 'username email')
@@ -211,45 +213,45 @@ app.get('/api/tasks', authenticateToken, async (req, res) => {
 
         res.json(tasks);
     } catch (err) {
-        console.error(err);
         res.status(500).json({ error: "Fetch failed" });
     }
 });
 
-// 3. UPDATE TASK STATUS (Drag & Drop)
+// 3. UPDATE TASK (Edit Any Field + Status Drag/Drop)
 app.put('/api/tasks/:id', authenticateToken, async (req, res) => {
     try {
-        const { status } = req.body;
-        const task = await Task.findById(req.params.id)
+        const updates = req.body;
+        
+        // Find task and update
+        const task = await Task.findByIdAndUpdate(req.params.id, updates, { new: true })
             .populate('assignee', 'email username')
             .populate('reporter', 'email username');
 
         if (!task) return res.status(404).json({error: "Not found"});
 
-        const oldStatus = task.status;
-        task.status = status;
-        await task.save();
+        // Send Email to involved parties (Assignee & Reporter)
+        const recipients = [task.assignee?.email, task.reporter?.email].filter(Boolean);
+        const uniqueRecipients = [...new Set(recipients)];
 
-        // --- EMAIL ON STATUS CHANGE ---
-        if (oldStatus !== status) {
-            const subject = `Task Updated: ${task.title}`;
-            const html = `
-                <p>Status changed from <b>${oldStatus}</b> to <b>${status}</b>.</p>
+        for (const email of uniqueRecipients) {
+            await sendEmail(
+                email,
+                `[JIRA] Update: ${task.title}`,
+                `
+                <p>There has been an update to <b>${task.title}</b>.</p>
+                <div style="background:#f4f5f7; padding:10px; border-radius:4px; margin-bottom:10px;">
+                   ${updates.status ? `<p><b>Status:</b> ${updates.status}</p>` : ''}
+                   ${updates.priority ? `<p><b>Priority:</b> ${updates.priority}</p>` : ''}
+                   ${updates.description ? `<p><b>Description:</b> Updated</p>` : ''}
+                </div>
                 <p>Updated by: ${req.user.username}</p>
-            `;
-            
-            // Notify Assignee
-            if (task.assignee && task.assignee.email) {
-                await sendEmail(task.assignee.email, subject, html);
-            }
-            // Notify Reporter (if they are not the one updating it)
-            if (task.reporter && task.reporter.email && task.reporter._id.toString() !== req.user._id.toString()) {
-                await sendEmail(task.reporter.email, subject, html);
-            }
+                `
+            );
         }
 
         res.json(task);
     } catch (err) {
+        console.error(err);
         res.status(500).json({ error: "Update failed" });
     }
 });
@@ -265,7 +267,7 @@ app.delete('/api/tasks/:id', authenticateToken, async (req, res) => {
 });
 
 app.get('/', (req, res) => {
-  res.send('🚀 BeeBark API is running with Pods & Email support!');
+  res.send('🚀 BeeBark API is running with Cron & Email support!');
 });
 
 const PORT = process.env.PORT || 5000;
