@@ -6,12 +6,20 @@ const jwt = require('jsonwebtoken');
 const bcrypt = require('bcryptjs');
 const cron = require('node-cron'); // Import Cron for scheduling
 
+
 // Import Models & Utils
 const User = require('./models/User');
 const Task = require('./models/Task');
 const Team = require('./models/Team');
 const { upload } = require('./utils/cloudinaryConfig');
 const sendEmail = require('./utils/sendEmail');
+
+app.use(cors({
+  origin: ["http://localhost:5173", "https://beebark-jira.vercel.app"], // Allow your frontend URLs
+  methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+  allowedHeaders: ["Content-Type", "Authorization"],
+  credentials: true
+}));
 
 const app = express();
 app.use(cors());
