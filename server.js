@@ -220,5 +220,10 @@ app.put('/api/tasks/:id', authenticateToken, async (req, res) => {
     }
 });
 
+
+app.get('/', (req, res) => {
+  res.send('🚀 API is running successfully');
+});
+
 const PORT = process.env.PORT || 5000;
 app.listen(PORT, () => console.log(`🚀 Server running on port ${PORT}`));
