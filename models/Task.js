@@ -1,31 +1,34 @@
-// models/Task.js
 const mongoose = require('mongoose');
 
-const taskSchema = new mongoose.Schema({
-  taskId: { type: String, required: true, unique: true },
+const subtaskSchema = new mongoose.Schema({
   title: { type: String, required: true },
-  description: { type: String }, // For rich text description
-  status: { type: String, default: 'To Do' },
-  priority: { type: String, enum: ['Low', 'Medium', 'High', 'Critical'], default: 'Medium' },
+  isCompleted: { type: Boolean, default: false }
+});
+
+const taskSchema = new mongoose.Schema({
+  title: { type: String, required: true },
+  description: { type: String, required: true }, 
+  status: { type: String, required: true, enum: ['To Do', 'In Progress', 'Blocked', 'Done'] },
+  priority: { type: String, required: true, enum: ['Low', 'Medium', 'High', 'Critical'] },
   
-  // --- NEW FIELDS ---
-  pod: { type: String, required: true }, // e.g. "Development", "Marketing Pod"
-  startDate: { type: Date, default: Date.now },
-  deadline: { type: Date },
+  taskId: { type: String, required: true, unique: true },
   
-  // Organization
-  team: { type: mongoose.Schema.Types.ObjectId, ref: 'Team' }, // Optional: if you want to link to a private team
+  // Organization (Teams replacing Pods)
+  team: { type: mongoose.Schema.Types.ObjectId, ref: 'Team', required: true },
   
-  // People
-  assignee: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
+  startDate: { type: Date, required: true },
+  deadline: { type: Date, required: true },
+  
+  assignee: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
   reporter: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
   
-  // Files (Cloudinary)
+  subtasks: [subtaskSchema], // New Subtask Array
+
   attachments: [{
     url: String,
     public_id: String,
     format: String,
-    name: String // To show original filename
+    name: String
   }],
 
   createdAt: { type: Date, default: Date.now }
