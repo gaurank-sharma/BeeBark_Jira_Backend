@@ -421,16 +421,19 @@ app.post('/api/tasks', authenticateToken, upload.array('files'), async (req, res
   try {
     const { title, description, priority, teamId, pod, assigneeId, reporterId, startDate, deadline, taskId, parentTaskId, subtasks } = req.body;
     
+    // --- THE FIX IS HERE ---
+    // FormData sends 'null' (string). We must convert it back to actual null.
+    let finalParentId = null;
+    if (parentTaskId && parentTaskId !== 'null' && parentTaskId !== 'undefined' && parentTaskId !== '') {
+        finalParentId = parentTaskId;
+    }
+
     // Safely parse subtasks
     let parsedSubtasks = [];
     if (subtasks) {
         try { 
-            // Only parse if it's a string (FormData sends strings)
             parsedSubtasks = typeof subtasks === 'string' ? JSON.parse(subtasks) : subtasks; 
-        } catch (e) { 
-            console.error("Subtask Parse Error:", e);
-            parsedSubtasks = []; 
-        } 
+        } catch (e) { parsedSubtasks = []; } 
     }
 
     const attachments = req.files ? req.files.map(f => ({
@@ -438,39 +441,44 @@ app.post('/api/tasks', authenticateToken, upload.array('files'), async (req, res
     })) : [];
 
     const task = new Task({
-        title, description, priority, 
-        team: teamId, pod: pod, 
+        title, 
+        description, 
+        priority, 
+        team: teamId, 
+        pod: pod, 
         taskId: taskId || `BB-${Math.floor(1000 + Math.random() * 9000)}`,
-        startDate, deadline, assignee: assigneeId, reporter: reporterId || req.user._id, 
+        startDate, 
+        deadline, 
+        assignee: assigneeId, 
+        reporter: reporterId || req.user._id, 
         status: req.body.status || 'To Do',
-        parentTask: parentTaskId || null, 
-        attachments, subtasks: parsedSubtasks
+        parentTask: finalParentId, // <--- Use the cleaned variable
+        attachments, 
+        subtasks: parsedSubtasks
     });
 
     await task.save();
     
-    if (parentTaskId) {
-        await Task.findByIdAndUpdate(parentTaskId, { $push: { subtasks: task._id } });
+    // If it has a parent, link it.
+    if (finalParentId) {
+        await Task.findByIdAndUpdate(finalParentId, { $push: { subtasks: task._id } });
     }
 
     const populated = await task.populate(['assignee', 'reporter']);
     
-    // Email Notification
+    // Email Notification logic...
     try {
         const emails = new Set();
         if (populated.assignee?.email) emails.add(populated.assignee.email);
         if (populated.reporter?.email) emails.add(populated.reporter.email);
-        
         const emailContent = getEmailTemplate(populated, "created", req.user.username);
         emails.forEach(email => sendEmail(email, `[BeeBark] (${populated.taskId}) ${title}`, emailContent));
-    } catch (emailErr) {
-        console.error("Email sending failed (non-fatal):", emailErr);
-    }
+    } catch (e) { console.log("Email error", e); }
 
     res.json(populated);
   } catch (err) { 
       console.error("Create Task Error:", err);
-      res.status(500).json({ error: "Task creation failed." }); 
+      res.status(500).json({ error: "Task creation failed.", details: err.message }); 
   }
 });
 
