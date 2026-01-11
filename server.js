@@ -181,6 +181,8 @@
 // app.listen(PORT, () => console.log(`🚀 Server running on port ${PORT}`));
 
 
+
+
 require('dotenv').config();
 const express = require('express'); 
 const mongoose = require('mongoose');
@@ -223,9 +225,8 @@ const authenticateToken = (req, res, next) => {
   });
 };
 
-// --- JIRA-STYLE EMAIL TEMPLATE ---
+// --- EMAIL TEMPLATE ---
 const getEmailTemplate = (task, action, actorName) => {
-    // Status Logic for Colors
     const isDone = task.status === 'Done';
     const isBlocked = task.status === 'Blocked';
     const isInProgress = task.status === 'In Progress';
@@ -234,68 +235,38 @@ const getEmailTemplate = (task, action, actorName) => {
     let statusBg = '#dfe1e6';
 
     if (isDone) { statusColor = '#006644'; statusBg = '#e3fcef'; }
-    else if (isBlocked) { statusColor = '#de350b'; statusBg = '#ffebe6'; } // Red for Blocked
+    else if (isBlocked) { statusColor = '#de350b'; statusBg = '#ffebe6'; }
     else if (isInProgress) { statusColor = '#0052cc'; statusBg = '#deebff'; }
 
     const isCreation = action === "created";
 
     return `
-    <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; max-width: 600px; margin: 0 auto; border: 1px solid #dfe1e6; border-radius: 3px; background-color: #ffffff;">
-        
-        <div style="padding: 20px 20px 10px 20px;">
-             <div style="font-size: 12px; color: #5e6c84; margin-bottom: 5px;">
-                ${actorName} <strong>${action}</strong> a work item
-             </div>
-             <div style="display: flex; align-items: center; gap: 10px;">
-                 <span style="background: #ebecf0; color: #42526e; padding: 2px 6px; border-radius: 3px; font-weight: bold; font-size: 12px; border: 1px solid #dfe1e6;">
-                    ${task.taskId}
-                 </span>
-                 <span style="font-size: 18px; color: #172b4d; font-weight: 500; margin-left: 8px;">
-                    ${task.title}
-                 </span>
-             </div>
+    <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; border: 1px solid #ebecf0; border-radius: 4px;">
+        <div style="padding: 20px; border-bottom: 1px solid #ebecf0; background: #f4f5f7;">
+             <span style="background: #0052cc; color: #fff; padding: 3px 6px; border-radius: 3px; font-weight: bold; font-size: 12px;">BeeBark</span>
+             <span style="color: #5e6c84; font-size: 14px; margin-left: 10px;">${task.taskId}</span>
+             <h2 style="margin: 10px 0 0 0; color: #172b4d;">${task.title}</h2>
         </div>
-
-        <div style="padding: 0 20px 20px 20px;">
-            
-            ${!isCreation ? `
-            <div style="margin: 15px 0; display: flex; align-items: center; font-size: 14px; color: #172b4d;">
-                <span style="color: #5e6c84; margin-right: 8px;">Status:</span>
-                <span style="background: ${statusBg}; color: ${statusColor}; padding: 2px 6px; border-radius: 3px; font-weight: bold; font-size: 12px; text-transform: uppercase;">
-                    ${task.status}
-                </span>
-            </div>` : ''}
-
-            <table style="width: 100%; border-collapse: collapse; margin-top: 15px; font-size: 14px;">
-                ${isCreation ? `
+        <div style="padding: 20px; background-color: #ffffff;">
+            <p style="color: #172b4d; font-size: 14px;">
+                <b>${actorName}</b> ${action} this task.
+            </p>
+            <table style="width: 100%; border-collapse: collapse; margin-top: 15px;">
                 <tr>
-                    <td style="padding: 5px 0; width: 100px; color: #5e6c84;">Status:</td>
-                    <td style="padding: 5px 0;">
-                        <span style="background: ${statusBg}; color: ${statusColor}; padding: 2px 6px; border-radius: 3px; font-weight: bold; font-size: 12px; text-transform: uppercase;">
-                            ${task.status}
-                        </span>
-                    </td>
-                </tr>` : ''}
-                <tr>
-                    <td style="padding: 5px 0; color: #5e6c84;">Assignee:</td>
-                    <td style="padding: 5px 0;">
-                        <span style="color: #172b4d;">${task.assignee?.username || 'Unassigned'}</span>
-                    </td>
+                    <td style="padding: 5px 0; color: #5e6c84; font-size: 12px; font-weight: bold; text-transform: uppercase;">Status</td>
+                    <td style="padding: 5px 0;"><span style="background: ${statusBg}; color: ${statusColor}; padding: 2px 6px; border-radius: 3px; font-weight: bold; font-size: 12px;">${task.status}</span></td>
                 </tr>
                 <tr>
-                    <td style="padding: 5px 0; color: #5e6c84;">Priority:</td>
-                    <td style="padding: 5px 0; color: #172b4d;">${task.priority}</td>
+                    <td style="padding: 5px 0; color: #5e6c84; font-size: 12px; font-weight: bold; text-transform: uppercase;">Pod</td>
+                    <td style="padding: 5px 0; color: #172b4d; font-weight: bold;">${task.pod}</td>
                 </tr>
                 <tr>
-                    <td style="padding: 5px 0; color: #5e6c84;">Pod:</td>
-                    <td style="padding: 5px 0; color: #172b4d;">${task.pod}</td>
+                    <td style="padding: 5px 0; color: #5e6c84; font-size: 12px; font-weight: bold; text-transform: uppercase;">Assignee</td>
+                    <td style="padding: 5px 0; color: #172b4d;">${task.assignee?.username || 'Unassigned'}</td>
                 </tr>
             </table>
-
             <div style="margin-top: 25px;">
-                <a href="https://beebark-jira.vercel.app/" style="background-color: #0052cc; color: #ffffff; padding: 8px 16px; text-decoration: none; border-radius: 3px; font-weight: 500; font-size: 14px; display: inline-block;">
-                    View work item
-                </a>
+                <a href="https://beebark-jira.vercel.app/" style="background-color: #0052cc; color: white; padding: 10px 20px; text-decoration: none; border-radius: 3px; font-weight: bold; font-size: 14px;">View Task</a>
             </div>
         </div>
     </div>
@@ -304,7 +275,6 @@ const getEmailTemplate = (task, action, actorName) => {
 
 // --- ROUTES ---
 
-// 1. AUTH
 app.post('/api/register', async (req, res) => {
   try {
     const { username, email, password } = req.body;
@@ -334,7 +304,7 @@ app.get('/api/users', authenticateToken, async (req, res) => {
     res.json(users);
 });
 
-// 2. TEAMS
+// TEAMS
 app.post('/api/teams', authenticateToken, async (req, res) => {
     try {
         const { name, members, isPrivate } = req.body;
@@ -350,82 +320,78 @@ app.get('/api/teams', authenticateToken, async (req, res) => {
     res.json(teams);
 });
 
-// 3. TASKS
+// TASKS
 app.post('/api/tasks', authenticateToken, upload.array('files'), async (req, res) => {
   try {
-    const { title, description, priority, teamId, pod, assigneeId, reporterId, startDate, deadline, taskId, parentTaskId } = req.body;
+    const { title, description, priority, teamId, pod, assigneeId, reporterId, startDate, deadline, taskId, parentTaskId, subtasks } = req.body;
     
+    let parsedSubtasks = [];
+    if (subtasks) { try { parsedSubtasks = JSON.parse(subtasks); } catch (e) { parsedSubtasks = []; } }
+
     const attachments = req.files ? req.files.map(f => ({
         url: f.path, public_id: f.filename, format: f.mimetype, name: f.originalname
     })) : [];
 
     const task = new Task({
         title, description, priority, 
-        team: teamId, 
-        pod: pod, // Mandatory POD
+        team: teamId, pod: pod, 
         taskId: taskId || `BB-${Math.floor(1000 + Math.random() * 9000)}`,
-        startDate: startDate, 
-        deadline: deadline, 
-        assignee: assigneeId,
-        reporter: reporterId || req.user._id, 
+        startDate, deadline, assignee: assigneeId, reporter: reporterId || req.user._id, 
         status: req.body.status || 'To Do',
-        parentTask: parentTaskId || null, // Link to parent if exists
-        attachments
+        parentTask: parentTaskId || null, 
+        attachments, subtasks: parsedSubtasks
     });
 
     await task.save();
     
-    // If this is a subtask, update the parent's subtasks array
     if (parentTaskId) {
         await Task.findByIdAndUpdate(parentTaskId, { $push: { subtasks: task._id } });
     }
 
     const populated = await task.populate(['assignee', 'reporter']);
     
-    // Email Logic
+    // Email
     const emails = new Set();
     if (populated.assignee?.email) emails.add(populated.assignee.email);
     if (populated.reporter?.email) emails.add(populated.reporter.email);
-
     const emailContent = getEmailTemplate(populated, "created", req.user.username);
-    emails.forEach(email => {
-        sendEmail(email, `[BeeBark] (${populated.taskId}) ${title}`, emailContent);
-    });
+    emails.forEach(email => sendEmail(email, `[BeeBark] (${populated.taskId}) ${title}`, emailContent));
 
     res.json(populated);
   } catch (err) { 
-    console.error(err);
-    res.status(500).json({ error: "Task creation failed." }); 
+      console.error(err);
+      res.status(500).json({ error: "Task creation failed." }); 
   }
 });
 
 app.get('/api/tasks', authenticateToken, async (req, res) => {
     let query = {};
+    
     if (req.query.filter === 'my-tasks') {
         query = { assignee: req.user._id };
     } else if (req.query.teamId) {
         query = { team: req.query.teamId };
     } else {
-        const myTeams = await Team.find({ $or: [{ isPrivate: false }, { members: req.user._id }] }).select('_id');
-        query = { team: { $in: myTeams } };
+        // --- FIXED: RETURN ALL TASKS IN DB (If no filter applied) ---
+        query = {}; 
     }
     
-    // Board logic: Only fetch top-level tasks (tasks with no parent)
-    // To see subtasks, you must open the parent task.
-    // If you want to see ALL, remove this line.
-    // query.parentTask = null; 
+    // Filter out subtasks from main board (they show inside parents)
+    query.parentTask = null; 
     
-    const tasks = await Task.find(query)
-        .populate('assignee', 'username email')
-        .populate('reporter', 'username email')
-        .populate('team')
-        .populate({
-            path: 'subtasks', // Explicitly populate subtasks here
-            select: 'taskId title status priority assignee',
-            populate: { path: 'assignee', select: 'username' }
-        })
-        .sort({ createdAt: -1 });
-    res.json(tasks);
+    try {
+        const tasks = await Task.find(query)
+            .populate('assignee', 'username email')
+            .populate('reporter', 'username email')
+            .populate('team')
+            .populate({
+                path: 'subtasks',
+                select: 'taskId title status priority assignee',
+                populate: { path: 'assignee', select: 'username' }
+            })
+            .sort({ createdAt: -1 });
+        res.json(tasks);
+    } catch(e) { res.status(500).json({error: "Fetch failed"}); }
 });
 
 app.put('/api/tasks/:id', authenticateToken, async (req, res) => {
@@ -434,15 +400,11 @@ app.put('/api/tasks/:id', authenticateToken, async (req, res) => {
             .populate('assignee', 'email username')
             .populate('reporter', 'email username');
         
-        // Email Logic
         const emails = new Set();
         if (task.assignee?.email) emails.add(task.assignee.email);
         if (task.reporter?.email) emails.add(task.reporter.email);
-
         const emailContent = getEmailTemplate(task, "updated", req.user.username);
-        emails.forEach(email => {
-             sendEmail(email, `[BeeBark] (${task.taskId}) Updated: ${task.title}`, emailContent);
-        });
+        emails.forEach(email => sendEmail(email, `[BeeBark] (${task.taskId}) Updated: ${task.title}`, emailContent));
         
         res.json(task);
     } catch (err) { res.status(500).json({ error: "Update failed" }); }
