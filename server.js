@@ -181,7 +181,6 @@
 // app.listen(PORT, () => console.log(`🚀 Server running on port ${PORT}`));
 
 
-
 require('dotenv').config();
 const express = require('express'); 
 const mongoose = require('mongoose');
@@ -224,28 +223,25 @@ const authenticateToken = (req, res, next) => {
   });
 };
 
-
-// ... imports ...
-
-// --- UPDATED EMAIL TEMPLATE (With Blocked Color) ---
+// --- JIRA-STYLE EMAIL TEMPLATE ---
 const getEmailTemplate = (task, action, actorName) => {
-    // Status Logic
+    // Status Logic for Colors
     const isDone = task.status === 'Done';
     const isBlocked = task.status === 'Blocked';
     const isInProgress = task.status === 'In Progress';
     
-    // Status Colors (Done=Green, Blocked=Red, Progress=Blue, ToDo=Grey)
     let statusColor = '#42526e'; 
     let statusBg = '#dfe1e6';
 
     if (isDone) { statusColor = '#006644'; statusBg = '#e3fcef'; }
-    else if (isBlocked) { statusColor = '#de350b'; statusBg = '#ffebe6'; } // RED FOR BLOCKED
+    else if (isBlocked) { statusColor = '#de350b'; statusBg = '#ffebe6'; } // Red for Blocked
     else if (isInProgress) { statusColor = '#0052cc'; statusBg = '#deebff'; }
 
     const isCreation = action === "created";
 
     return `
     <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; max-width: 600px; margin: 0 auto; border: 1px solid #dfe1e6; border-radius: 3px; background-color: #ffffff;">
+        
         <div style="padding: 20px 20px 10px 20px;">
              <div style="font-size: 12px; color: #5e6c84; margin-bottom: 5px;">
                 ${actorName} <strong>${action}</strong> a work item
@@ -259,7 +255,9 @@ const getEmailTemplate = (task, action, actorName) => {
                  </span>
              </div>
         </div>
+
         <div style="padding: 0 20px 20px 20px;">
+            
             ${!isCreation ? `
             <div style="margin: 15px 0; display: flex; align-items: center; font-size: 14px; color: #172b4d;">
                 <span style="color: #5e6c84; margin-right: 8px;">Status:</span>
@@ -288,7 +286,12 @@ const getEmailTemplate = (task, action, actorName) => {
                     <td style="padding: 5px 0; color: #5e6c84;">Priority:</td>
                     <td style="padding: 5px 0; color: #172b4d;">${task.priority}</td>
                 </tr>
+                <tr>
+                    <td style="padding: 5px 0; color: #5e6c84;">Pod:</td>
+                    <td style="padding: 5px 0; color: #172b4d;">${task.pod}</td>
+                </tr>
             </table>
+
             <div style="margin-top: 25px;">
                 <a href="https://beebark-jira.vercel.app/" style="background-color: #0052cc; color: #ffffff; padding: 8px 16px; text-decoration: none; border-radius: 3px; font-weight: 500; font-size: 14px; display: inline-block;">
                     View work item
@@ -299,7 +302,9 @@ const getEmailTemplate = (task, action, actorName) => {
     `;
 };
 
-// 1. AUTH & USERS
+// --- ROUTES ---
+
+// 1. AUTH
 app.post('/api/register', async (req, res) => {
   try {
     const { username, email, password } = req.body;
@@ -329,7 +334,7 @@ app.get('/api/users', authenticateToken, async (req, res) => {
     res.json(users);
 });
 
-// 2. TEAMS (Replaces Pods)
+// 2. TEAMS
 app.post('/api/teams', authenticateToken, async (req, res) => {
     try {
         const { name, members, isPrivate } = req.body;
@@ -341,7 +346,6 @@ app.post('/api/teams', authenticateToken, async (req, res) => {
 });
 
 app.get('/api/teams', authenticateToken, async (req, res) => {
-    // Return Public teams OR Private teams where user is a member
     const teams = await Team.find({ $or: [{ isPrivate: false }, { members: req.user._id }] });
     res.json(teams);
 });
@@ -349,51 +353,49 @@ app.get('/api/teams', authenticateToken, async (req, res) => {
 // 3. TASKS
 app.post('/api/tasks', authenticateToken, upload.array('files'), async (req, res) => {
   try {
-    const { title, description, priority, teamId, assigneeId, reporterId, startDate, deadline, taskId, subtasks } = req.body;
+    const { title, description, priority, teamId, pod, assigneeId, reporterId, startDate, deadline, taskId, parentTaskId } = req.body;
     
-    // Parse subtasks if sent as string (Multipart form data nuance)
-    let parsedSubtasks = [];
-    if (subtasks) {
-        try { parsedSubtasks = JSON.parse(subtasks); } catch (e) { parsedSubtasks = []; }
-    }
-
     const attachments = req.files ? req.files.map(f => ({
         url: f.path, public_id: f.filename, format: f.mimetype, name: f.originalname
     })) : [];
 
     const task = new Task({
         title, description, priority, 
-        team: teamId, // Mandatory Team ID
+        team: teamId, 
+        pod: pod, // Mandatory POD
         taskId: taskId || `BB-${Math.floor(1000 + Math.random() * 9000)}`,
         startDate: startDate, 
         deadline: deadline, 
         assignee: assigneeId,
-        reporter: reporterId || req.user._id, // Fallback to session user
+        reporter: reporterId || req.user._id, 
         status: req.body.status || 'To Do',
-        attachments,
-        subtasks: parsedSubtasks
+        parentTask: parentTaskId || null, // Link to parent if exists
+        attachments
     });
 
     await task.save();
     
-    // Populate for Email
+    // If this is a subtask, update the parent's subtasks array
+    if (parentTaskId) {
+        await Task.findByIdAndUpdate(parentTaskId, { $push: { subtasks: task._id } });
+    }
+
     const populated = await task.populate(['assignee', 'reporter']);
     
-    // Email Logic: Send to Assignee AND Reporter (Avoid duplicates)
+    // Email Logic
     const emails = new Set();
     if (populated.assignee?.email) emails.add(populated.assignee.email);
     if (populated.reporter?.email) emails.add(populated.reporter.email);
 
     const emailContent = getEmailTemplate(populated, "created", req.user.username);
-    
     emails.forEach(email => {
-        sendEmail(email, `[JIRA] (${populated.taskId}) ${title}`, emailContent);
+        sendEmail(email, `[BeeBark] (${populated.taskId}) ${title}`, emailContent);
     });
 
     res.json(populated);
   } catch (err) { 
     console.error(err);
-    res.status(500).json({ error: "Task creation failed. Ensure all fields are filled." }); 
+    res.status(500).json({ error: "Task creation failed." }); 
   }
 });
 
@@ -403,12 +405,25 @@ app.get('/api/tasks', authenticateToken, async (req, res) => {
         query = { assignee: req.user._id };
     } else if (req.query.teamId) {
         query = { team: req.query.teamId };
+    } else {
+        const myTeams = await Team.find({ $or: [{ isPrivate: false }, { members: req.user._id }] }).select('_id');
+        query = { team: { $in: myTeams } };
     }
+    
+    // Board logic: Only fetch top-level tasks (tasks with no parent)
+    // To see subtasks, you must open the parent task.
+    // If you want to see ALL, remove this line.
+    // query.parentTask = null; 
     
     const tasks = await Task.find(query)
         .populate('assignee', 'username email')
         .populate('reporter', 'username email')
         .populate('team')
+        .populate({
+            path: 'subtasks', // Explicitly populate subtasks here
+            select: 'taskId title status priority assignee',
+            populate: { path: 'assignee', select: 'username' }
+        })
         .sort({ createdAt: -1 });
     res.json(tasks);
 });
@@ -419,15 +434,14 @@ app.put('/api/tasks/:id', authenticateToken, async (req, res) => {
             .populate('assignee', 'email username')
             .populate('reporter', 'email username');
         
-        // Email Logic: Send to Assignee AND Reporter
+        // Email Logic
         const emails = new Set();
         if (task.assignee?.email) emails.add(task.assignee.email);
         if (task.reporter?.email) emails.add(task.reporter.email);
 
         const emailContent = getEmailTemplate(task, "updated", req.user.username);
-
         emails.forEach(email => {
-             sendEmail(email, `[JIRA] (${task.taskId}) Updated: ${task.title}`, emailContent);
+             sendEmail(email, `[BeeBark] (${task.taskId}) Updated: ${task.title}`, emailContent);
         });
         
         res.json(task);

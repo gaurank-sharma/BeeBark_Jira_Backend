@@ -9,7 +9,7 @@ const taskSchema = new mongoose.Schema({
   taskId: { type: String, required: true, unique: true },
   
   // --- ORGANIZATION ---
-  team: { type: mongoose.Schema.Types.ObjectId, ref: 'Team', required: true }, // Dynamic Team (Board)
+  team: { type: mongoose.Schema.Types.ObjectId, ref: 'Team', required: true }, // Dynamic Team
   pod: { type: String, required: true }, // Fixed Function (Dev, Design, etc.)
   
   // --- TIMELINE ---
@@ -20,7 +20,7 @@ const taskSchema = new mongoose.Schema({
   assignee: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
   reporter: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
   
-  // --- HIERARCHY (Subtasks) ---
+  // --- HIERARCHY (Subtasks are full Task documents) ---
   parentTask: { type: mongoose.Schema.Types.ObjectId, ref: 'Task', default: null },
   subtasks: [{ type: mongoose.Schema.Types.ObjectId, ref: 'Task' }],
 
@@ -35,14 +35,7 @@ const taskSchema = new mongoose.Schema({
   createdAt: { type: Date, default: Date.now }
 });
 
-// Auto-populate subtasks when finding
-taskSchema.pre(/^find/, function(next) {
-    this.populate({
-        path: 'subtasks',
-        select: 'taskId title status priority assignee',
-        populate: { path: 'assignee', select: 'username' }
-    });
-    next();
-});
+// Auto-populate logic removed to prevent "next is not a function" errors.
+// We will handle population in the controller (index.js).
 
 module.exports = mongoose.model('Task', taskSchema);
