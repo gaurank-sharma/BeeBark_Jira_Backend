@@ -224,46 +224,80 @@ const authenticateToken = (req, res, next) => {
   });
 };
 
-// --- EMAIL TEMPLATE HELPER (JIRA STYLE) ---
+
+// ... imports ...
+
+// --- UPDATED EMAIL TEMPLATE (With Blocked Color) ---
 const getEmailTemplate = (task, action, actorName) => {
-    const color = task.status === 'Done' ? '#14892c' : task.status === 'In Progress' ? '#0052cc' : '#42526e';
-    const bg = task.status === 'Done' ? '#e3fcef' : task.status === 'In Progress' ? '#deebff' : '#dfe1e6';
+    // Status Logic
+    const isDone = task.status === 'Done';
+    const isBlocked = task.status === 'Blocked';
+    const isInProgress = task.status === 'In Progress';
     
+    // Status Colors (Done=Green, Blocked=Red, Progress=Blue, ToDo=Grey)
+    let statusColor = '#42526e'; 
+    let statusBg = '#dfe1e6';
+
+    if (isDone) { statusColor = '#006644'; statusBg = '#e3fcef'; }
+    else if (isBlocked) { statusColor = '#de350b'; statusBg = '#ffebe6'; } // RED FOR BLOCKED
+    else if (isInProgress) { statusColor = '#0052cc'; statusBg = '#deebff'; }
+
+    const isCreation = action === "created";
+
     return `
-    <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, sans-serif; max-width: 600px; margin: 0 auto; border: 1px solid #ebecf0; border-radius: 4px; overflow: hidden;">
-        <div style="padding: 20px; border-bottom: 1px solid #ebecf0;">
-             <span style="background: #fffae6; color: #172b4d; padding: 2px 4px; border-radius: 3px; font-weight: bold; font-size: 12px; border: 1px solid #fff0b3;">JIRA</span>
-             <span style="color: #5e6c84; font-size: 14px; margin-left: 10px;">${task.taskId}</span>
-             <h2 style="margin-top: 10px; color: #172b4d; font-size: 20px;">${task.title}</h2>
+    <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; max-width: 600px; margin: 0 auto; border: 1px solid #dfe1e6; border-radius: 3px; background-color: #ffffff;">
+        <div style="padding: 20px 20px 10px 20px;">
+             <div style="font-size: 12px; color: #5e6c84; margin-bottom: 5px;">
+                ${actorName} <strong>${action}</strong> a work item
+             </div>
+             <div style="display: flex; align-items: center; gap: 10px;">
+                 <span style="background: #ebecf0; color: #42526e; padding: 2px 6px; border-radius: 3px; font-weight: bold; font-size: 12px; border: 1px solid #dfe1e6;">
+                    ${task.taskId}
+                 </span>
+                 <span style="font-size: 18px; color: #172b4d; font-weight: 500; margin-left: 8px;">
+                    ${task.title}
+                 </span>
+             </div>
         </div>
-        <div style="padding: 20px; background-color: #ffffff;">
-            <p style="color: #172b4d; font-size: 14px;">
-                <b>${actorName}</b> ${action} this task.
-            </p>
-            <div style="margin: 20px 0;">
-                <div style="margin-bottom: 10px;">
-                    <span style="color: #5e6c84; font-size: 12px; text-transform: uppercase; font-weight: bold;">Status</span><br/>
-                    <span style="background: ${bg}; color: ${color}; padding: 2px 6px; border-radius: 3px; font-weight: bold; font-size: 12px; display: inline-block; margin-top: 4px;">${task.status}</span>
-                </div>
-                <div style="margin-bottom: 10px;">
-                    <span style="color: #5e6c84; font-size: 12px; text-transform: uppercase; font-weight: bold;">Priority</span><br/>
-                    <span style="color: #172b4d; font-size: 14px;">${task.priority}</span>
-                </div>
-                 <div style="margin-bottom: 10px;">
-                    <span style="color: #5e6c84; font-size: 12px; text-transform: uppercase; font-weight: bold;">Description</span><br/>
-                    <p style="color: #172b4d; font-size: 14px; background: #f4f5f7; padding: 10px; border-radius: 4px;">${task.description}</p>
-                </div>
+        <div style="padding: 0 20px 20px 20px;">
+            ${!isCreation ? `
+            <div style="margin: 15px 0; display: flex; align-items: center; font-size: 14px; color: #172b4d;">
+                <span style="color: #5e6c84; margin-right: 8px;">Status:</span>
+                <span style="background: ${statusBg}; color: ${statusColor}; padding: 2px 6px; border-radius: 3px; font-weight: bold; font-size: 12px; text-transform: uppercase;">
+                    ${task.status}
+                </span>
+            </div>` : ''}
+
+            <table style="width: 100%; border-collapse: collapse; margin-top: 15px; font-size: 14px;">
+                ${isCreation ? `
+                <tr>
+                    <td style="padding: 5px 0; width: 100px; color: #5e6c84;">Status:</td>
+                    <td style="padding: 5px 0;">
+                        <span style="background: ${statusBg}; color: ${statusColor}; padding: 2px 6px; border-radius: 3px; font-weight: bold; font-size: 12px; text-transform: uppercase;">
+                            ${task.status}
+                        </span>
+                    </td>
+                </tr>` : ''}
+                <tr>
+                    <td style="padding: 5px 0; color: #5e6c84;">Assignee:</td>
+                    <td style="padding: 5px 0;">
+                        <span style="color: #172b4d;">${task.assignee?.username || 'Unassigned'}</span>
+                    </td>
+                </tr>
+                <tr>
+                    <td style="padding: 5px 0; color: #5e6c84;">Priority:</td>
+                    <td style="padding: 5px 0; color: #172b4d;">${task.priority}</td>
+                </tr>
+            </table>
+            <div style="margin-top: 25px;">
+                <a href="https://beebark-jira.vercel.app/" style="background-color: #0052cc; color: #ffffff; padding: 8px 16px; text-decoration: none; border-radius: 3px; font-weight: 500; font-size: 14px; display: inline-block;">
+                    View work item
+                </a>
             </div>
-            <a href="https://beebark-jira.vercel.app/" style="background-color: #0052cc; color: white; padding: 10px 20px; text-decoration: none; border-radius: 4px; font-weight: bold; font-size: 14px; display: inline-block;">View work item</a>
-        </div>
-        <div style="padding: 15px; background-color: #f4f5f7; color: #5e6c84; font-size: 12px; text-align: center;">
-            BeeBark Automation
         </div>
     </div>
     `;
 };
-
-// --- ROUTES ---
 
 // 1. AUTH & USERS
 app.post('/api/register', async (req, res) => {
