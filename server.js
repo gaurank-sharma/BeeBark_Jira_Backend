@@ -392,11 +392,27 @@ app.post('/api/forgot-password', async (req, res) => {
             </div>
             <p style="color:#5e6c84;margin-top:20px;font-size:12px;">If you didn't request this, you can ignore this email.</p>
         `;
-        await sendEmail(email, '[BeeBark] Password Reset Request', htmlContent);
+        await sendEmail(email, '[BeeBark] Password Reset Request', htmlContent, false);
         res.json({ message: "Password reset link sent." });
     } catch (err) {
         console.error("Forgot Password Error:", err);
         res.status(500).json({ error: "Failed to send reset email." });
+    }
+});
+
+// Reset Password - verifies token and updates password
+app.post('/api/reset-password', async (req, res) => {
+    try {
+        const { token, newPassword } = req.body;
+        if (!token || !newPassword) return res.status(400).json({ error: "Token and new password are required." });
+
+        const decoded = jwt.verify(token, process.env.JWT_SECRET);
+        const hashedPassword = await bcrypt.hash(newPassword, 10);
+        await User.findByIdAndUpdate(decoded._id, { password: hashedPassword });
+        res.json({ message: "Password reset successfully." });
+    } catch (err) {
+        console.error("Reset Password Error:", err);
+        res.status(400).json({ error: "Invalid or expired reset link." });
     }
 });
 
