@@ -568,9 +568,17 @@ app.get('/api/tasks', authenticateToken, async (req, res) => {
     }
 });
 
-app.put('/api/tasks/:id', authenticateToken, async (req, res) => {
+app.put('/api/tasks/:id', authenticateToken, upload.array('files'), async (req, res) => {
     try {
-        const task = await Task.findByIdAndUpdate(req.params.id, req.body, { new: true })
+        const { attachments, ...updateFields } = req.body;
+        let updateOp = { $set: updateFields };
+        if (req.files && req.files.length > 0) {
+            const newAttachments = req.files.map(f => ({
+                url: f.path, public_id: f.filename, format: f.mimetype, name: f.originalname
+            }));
+            updateOp.$push = { attachments: { $each: newAttachments } };
+        }
+        const task = await Task.findByIdAndUpdate(req.params.id, updateOp, { new: true })
             .populate('assignee', 'email username')
             .populate('reporter', 'email username');
         
