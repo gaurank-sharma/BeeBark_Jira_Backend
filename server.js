@@ -372,6 +372,34 @@ app.post('/api/login', async (req, res) => {
   }
 });
 
+// Forgot Password - sends reset link to user's email
+app.post('/api/forgot-password', async (req, res) => {
+    try {
+        const { email } = req.body;
+        const user = await User.findOne({ email });
+        if (!user) return res.status(404).json({ error: "No account found with that email." });
+
+        // Generate a short-lived reset token
+        const resetToken = jwt.sign({ _id: user._id }, process.env.JWT_SECRET, { expiresIn: '1h' });
+        const resetUrl = `${process.env.FRONTEND_URL || 'https://beebark-jira.vercel.app'}?reset=${resetToken}`;
+
+        const htmlContent = `
+            <h3 style="color:#172b4d;">Password Reset Request</h3>
+            <p style="color:#5e6c84;">Hi <b>${user.username}</b>, we received a request to reset your password.</p>
+            <p style="color:#5e6c84;">Click the button below to reset it. This link expires in 1 hour.</p>
+            <div style="margin-top:20px;">
+                <a href="${resetUrl}" style="background-color:#0052cc;color:white;padding:12px 24px;text-decoration:none;border-radius:4px;font-weight:bold;">Reset Password</a>
+            </div>
+            <p style="color:#5e6c84;margin-top:20px;font-size:12px;">If you didn't request this, you can ignore this email.</p>
+        `;
+        await sendEmail(email, '[BeeBark] Password Reset Request', htmlContent);
+        res.json({ message: "Password reset link sent." });
+    } catch (err) {
+        console.error("Forgot Password Error:", err);
+        res.status(500).json({ error: "Failed to send reset email." });
+    }
+});
+
 // --- FIXED: ADDED TRY/CATCH TO PREVENT SERVER CRASH ---
 app.get('/api/users', authenticateToken, async (req, res) => {
     try {
@@ -466,13 +494,12 @@ app.post('/api/tasks', authenticateToken, upload.array('files'), async (req, res
 
     const populated = await task.populate(['assignee', 'reporter']);
     
-    // Email Notification logic...
+    // Email Notification: send only to the assignee (not the reporter/creator)
     try {
-        const emails = new Set();
-        if (populated.assignee?.email) emails.add(populated.assignee.email);
-        if (populated.reporter?.email) emails.add(populated.reporter.email);
-        const emailContent = getEmailTemplate(populated, "created", req.user.username);
-        emails.forEach(email => sendEmail(email, `[BeeBark] (${populated.taskId}) ${title}`, emailContent));
+        if (populated.assignee?.email) {
+            const emailContent = getEmailTemplate(populated, "assigned to you by " + req.user.username, req.user.username);
+            sendEmail(populated.assignee.email, `[BeeBark] Task assigned to you: (${populated.taskId}) ${title}`, emailContent);
+        }
     } catch (e) { console.log("Email error", e); }
 
     res.json(populated);
@@ -485,16 +512,28 @@ app.post('/api/tasks', authenticateToken, upload.array('files'), async (req, res
 app.get('/api/tasks', authenticateToken, async (req, res) => {
     try {
         let query = {};
-        
+
         if (req.query.filter === 'my-tasks') {
             query = { assignee: req.user._id };
         } else if (req.query.teamId) {
+            // Verify user has access to this specific team
+            const team = await Team.findById(req.query.teamId);
+            if (team && team.isPrivate && !team.members.some(m => m.toString() === req.user._id.toString())) {
+                return res.status(403).json({ error: "Access denied to this team" });
+            }
             query = { team: req.query.teamId };
-        } 
-        
+        } else {
+            // All tasks view: only show tasks from public teams OR teams user is a member of
+            const accessibleTeams = await Team.find({
+                $or: [{ isPrivate: false }, { members: req.user._id }]
+            });
+            const accessibleTeamIds = accessibleTeams.map(t => t._id);
+            query = { team: { $in: accessibleTeamIds } };
+        }
+
         // Filter out subtasks from main board view
-        query.parentTask = null; 
-        
+        query.parentTask = null;
+
         const tasks = await Task.find(query)
             .populate('assignee', 'username email')
             .populate('reporter', 'username email')
@@ -505,11 +544,11 @@ app.get('/api/tasks', authenticateToken, async (req, res) => {
                 populate: { path: 'assignee', select: 'username' }
             })
             .sort({ createdAt: -1 });
-            
+
         res.json(tasks || []);
-    } catch(err) { 
+    } catch(err) {
         console.error("Fetch Tasks Error:", err);
-        res.status(500).json({error: "Fetch failed"}); 
+        res.status(500).json({error: "Fetch failed"});
     }
 });
 
