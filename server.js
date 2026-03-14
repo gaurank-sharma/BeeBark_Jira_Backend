@@ -272,16 +272,18 @@ app.use(express.json());
 connectCloudinary();
 
 // --- 2. DB CONNECTION ---
-// Store the promise so each request can await it (required for Vercel serverless)
-const dbReady = mongoose.connect(process.env.MONGO_URI, {
-  serverSelectionTimeoutMS: 30000,
-  socketTimeoutMS: 45000,
-}).then(() => console.log('✅ MongoDB Connected'))
-  .catch(err => console.error('❌ DB Connection Error:', err));
+// Cache connection globally so Vercel warm invocations reuse it
+if (!global._mongooseConnPromise) {
+  global._mongooseConnPromise = mongoose.connect(process.env.MONGO_URI, {
+    serverSelectionTimeoutMS: 30000,
+    socketTimeoutMS: 45000,
+  }).then(() => console.log('✅ MongoDB Connected'))
+    .catch(err => { console.error('❌ DB Connection Error:', err); global._mongooseConnPromise = null; throw err; });
+}
 
 // Ensure DB is connected before any route runs
 app.use(async (req, res, next) => {
-  try { await dbReady; next(); }
+  try { await global._mongooseConnPromise; next(); }
   catch (err) { res.status(503).json({ error: 'Database connection failed' }); }
 });
 
