@@ -272,9 +272,18 @@ app.use(express.json());
 connectCloudinary();
 
 // --- 2. DB CONNECTION ---
-mongoose.connect(process.env.MONGO_URI)
-  .then(() => console.log('✅ MongoDB Connected'))
+// Store the promise so each request can await it (required for Vercel serverless)
+const dbReady = mongoose.connect(process.env.MONGO_URI, {
+  serverSelectionTimeoutMS: 30000,
+  socketTimeoutMS: 45000,
+}).then(() => console.log('✅ MongoDB Connected'))
   .catch(err => console.error('❌ DB Connection Error:', err));
+
+// Ensure DB is connected before any route runs
+app.use(async (req, res, next) => {
+  try { await dbReady; next(); }
+  catch (err) { res.status(503).json({ error: 'Database connection failed' }); }
+});
 
 // --- MIDDLEWARE ---
 const authenticateToken = (req, res, next) => {
