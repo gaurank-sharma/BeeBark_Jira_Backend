@@ -568,20 +568,13 @@ app.get('/api/tasks', authenticateToken, async (req, res) => {
     }
 });
 
-app.put('/api/tasks/:id', authenticateToken, upload.array('files'), async (req, res) => {
+app.put('/api/tasks/:id', authenticateToken, async (req, res) => {
     try {
         const { attachments, ...updateFields } = req.body;
-        let updateOp = { $set: updateFields };
-        if (req.files && req.files.length > 0) {
-            const newAttachments = req.files.map(f => ({
-                url: f.path, public_id: f.filename, format: f.mimetype, name: f.originalname
-            }));
-            updateOp.$push = { attachments: { $each: newAttachments } };
-        }
-        const task = await Task.findByIdAndUpdate(req.params.id, updateOp, { new: true })
+        const task = await Task.findByIdAndUpdate(req.params.id, updateFields, { new: true })
             .populate('assignee', 'email username')
             .populate('reporter', 'email username');
-        
+
         if (!task) return res.status(404).json({ error: "Task not found" });
 
         try {
@@ -593,11 +586,31 @@ app.put('/api/tasks/:id', authenticateToken, upload.array('files'), async (req, 
         } catch (emailErr) {
             console.error("Email update failed:", emailErr);
         }
-        
+
         res.json(task);
-    } catch (err) { 
+    } catch (err) {
         console.error("Update Task Error:", err);
-        res.status(500).json({ error: "Update failed" }); 
+        res.status(500).json({ error: "Update failed" });
+    }
+});
+
+// Upload attachments to an existing task
+app.post('/api/tasks/:id/attachments', authenticateToken, upload.array('files'), async (req, res) => {
+    try {
+        if (!req.files || req.files.length === 0) return res.status(400).json({ error: "No files uploaded" });
+        const newAttachments = req.files.map(f => ({
+            url: f.path, public_id: f.filename, format: f.mimetype, name: f.originalname
+        }));
+        const task = await Task.findByIdAndUpdate(
+            req.params.id,
+            { $push: { attachments: { $each: newAttachments } } },
+            { new: true }
+        ).populate('assignee', 'email username').populate('reporter', 'email username');
+        if (!task) return res.status(404).json({ error: "Task not found" });
+        res.json(task);
+    } catch (err) {
+        console.error("Attachment Upload Error:", err);
+        res.status(500).json({ error: "Upload failed" });
     }
 });
 
