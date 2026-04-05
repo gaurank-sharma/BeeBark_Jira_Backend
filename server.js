@@ -550,12 +550,11 @@ app.get('/api/tasks', authenticateToken, async (req, res) => {
             }
             query = { team: req.query.teamId };
         } else {
-            // All tasks view: only show tasks from public teams OR teams user is a member of
-            const accessibleTeams = await Team.find({
-                $or: [{ isPrivate: false }, { members: req.user._id }]
-            });
-            const accessibleTeamIds = accessibleTeams.map(t => t._id);
-            query = { team: { $in: accessibleTeamIds } };
+            // All tasks view: ONLY show tasks from public teams
+            // Private team tasks are only visible when explicitly navigating to that team
+            const publicTeams = await Team.find({ isPrivate: false });
+            const publicTeamIds = publicTeams.map(t => t._id);
+            query = { team: { $in: publicTeamIds } };
         }
 
         // Filter out subtasks from main board view
