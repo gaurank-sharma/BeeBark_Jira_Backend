@@ -13,8 +13,7 @@ const taskSchema = new mongoose.Schema({
   pod: { type: String, required: true }, // Fixed Function (Dev, Design, etc.)
   
   // --- TIMELINE ---
-  startDate: { type: Date, required: true },
-  deadline: { type: Date, required: true },
+  estimatedTime: { type: String, default: '' },
   
   // --- PEOPLE ---
   assignee: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },

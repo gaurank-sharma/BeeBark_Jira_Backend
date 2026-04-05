@@ -474,8 +474,8 @@ app.get('/api/teams', authenticateToken, async (req, res) => {
 // TASKS
 app.post('/api/tasks', authenticateToken, upload.array('files'), async (req, res) => {
   try {
-    const { title, description, priority, teamId, pod, assigneeId, reporterId, startDate, deadline, taskId, parentTaskId, subtasks } = req.body;
-    
+    const { title, description, priority, teamId, pod, assigneeId, reporterId, estimatedTime, taskId, parentTaskId, subtasks } = req.body;
+
     // --- THE FIX IS HERE ---
     // FormData sends 'null' (string). We must convert it back to actual null.
     let finalParentId = null;
@@ -502,8 +502,7 @@ app.post('/api/tasks', authenticateToken, upload.array('files'), async (req, res
         team: teamId, 
         pod: pod, 
         taskId: taskId || `BB-${Math.floor(1000 + Math.random() * 9000)}`,
-        startDate, 
-        deadline, 
+        estimatedTime: estimatedTime || '',
         assignee: assigneeId, 
         reporter: reporterId || req.user._id, 
         status: req.body.status || 'To Do',
