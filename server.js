@@ -250,7 +250,7 @@ const bcrypt = require('bcryptjs');
 
 // Ensure you have these folders/files created or standard imports
 const connectCloudinary = require('./config/cloudinary');
-const upload = require('./utils/upload'); 
+const { upload, uploadToCloudinary } = require('./utils/upload');
 const User = require('./models/User');
 const Task = require('./models/Task');
 const Team = require('./models/Team');
@@ -491,9 +491,9 @@ app.post('/api/tasks', authenticateToken, upload.array('files'), async (req, res
         } catch (e) { parsedSubtasks = []; } 
     }
 
-    const attachments = req.files ? req.files.map(f => ({
-        url: f.path, public_id: f.filename, format: f.mimetype, name: f.originalname
-    })) : [];
+    const attachments = req.files && req.files.length > 0
+        ? await Promise.all(req.files.map(uploadToCloudinary))
+        : [];
 
     const task = new Task({
         title, 
@@ -608,9 +608,7 @@ app.put('/api/tasks/:id', authenticateToken, async (req, res) => {
 app.post('/api/tasks/:id/attachments', authenticateToken, upload.array('files'), async (req, res) => {
     try {
         if (!req.files || req.files.length === 0) return res.status(400).json({ error: "No files uploaded" });
-        const newAttachments = req.files.map(f => ({
-            url: f.path, public_id: f.filename, format: f.mimetype, name: f.originalname
-        }));
+        const newAttachments = await Promise.all(req.files.map(uploadToCloudinary));
         const task = await Task.findByIdAndUpdate(
             req.params.id,
             { $push: { attachments: { $each: newAttachments } } },
@@ -621,6 +619,23 @@ app.post('/api/tasks/:id/attachments', authenticateToken, upload.array('files'),
     } catch (err) {
         console.error("Attachment Upload Error:", err);
         res.status(500).json({ error: "Upload failed" });
+    }
+});
+
+// Update team members (add/remove)
+app.put('/api/teams/:id/members', authenticateToken, async (req, res) => {
+    try {
+        const { members } = req.body;
+        const team = await Team.findByIdAndUpdate(
+            req.params.id,
+            { members: [...new Set([...members, req.user._id])] },
+            { new: true }
+        );
+        if (!team) return res.status(404).json({ error: "Team not found" });
+        res.json(team);
+    } catch (err) {
+        console.error("Update Team Members Error:", err);
+        res.status(500).json({ error: "Failed to update team members" });
     }
 });
 

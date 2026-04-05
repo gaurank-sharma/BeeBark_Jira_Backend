@@ -1,42 +1,37 @@
-// const cloudinary = require('cloudinary').v2;
-// const { CloudinaryStorage } = require('multer-storage-cloudinary');
-// const multer = require('multer');
-
-// const storage = new CloudinaryStorage({
-//   cloudinary: cloudinary,
-//   params: async (req, file) => {
-//     return {
-//       folder: 'jira-uploads',
-//       resource_type: 'auto', 
-//       public_id: file.originalname.split('.')[0] + '-' + Date.now(),
-//     };
-//   },
-// });
-
-// const upload = multer({ storage: storage });
-// module.exports = upload;
-
 const multer = require('multer');
-const { CloudinaryStorage } = require('multer-storage-cloudinary');
 const cloudinary = require('cloudinary').v2;
+const { Readable } = require('stream');
 
-const storage = new CloudinaryStorage({
-  cloudinary: cloudinary,
-  params: async (req, file) => {
-    // Detect PDF
-    const isPdf = file.mimetype === 'application/pdf';
-    
-    return {
-      folder: 'beebark-tasks',
-      // IMPORTANT: 'auto' allows Cloudinary to detect PDF vs Image
-      resource_type: 'auto', 
-      // Force correct extension
-      format: isPdf ? 'pdf' : undefined, 
-      public_id: file.originalname.split('.')[0] + '-' + Date.now(), 
-    };
-  },
+// Memory storage — files buffered in memory, then streamed to Cloudinary
+const upload = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 10 * 1024 * 1024 } // 10MB
 });
 
-const upload = multer({ storage: storage });
+// Upload a single multer file (with .buffer) to Cloudinary
+const uploadToCloudinary = (file) => {
+  const isPdf = file.mimetype === 'application/pdf';
+  const publicId = file.originalname.replace(/\.[^/.]+$/, '') + '-' + Date.now();
 
-module.exports = upload;
+  return new Promise((resolve, reject) => {
+    const stream = cloudinary.uploader.upload_stream(
+      {
+        folder: 'beebark-tasks',
+        resource_type: isPdf ? 'raw' : 'image',
+        public_id: publicId,
+      },
+      (error, result) => {
+        if (error) return reject(error);
+        resolve({
+          url: result.secure_url,
+          public_id: result.public_id,
+          format: file.mimetype,
+          name: file.originalname,
+        });
+      }
+    );
+    Readable.from(file.buffer).pipe(stream);
+  });
+};
+
+module.exports = { upload, uploadToCloudinary };
